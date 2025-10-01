@@ -1,0 +1,422 @@
+------------------------ Task 1: Config Parser Design ------------------------ 
+Write pseudocode for a function that:
+
+def load_config(config_path):
+    """
+    Load and validate the YAML configuration.
+    
+    What validation checks should happen here?
+    What errors might occur?
+    What should the return type be?
+    """
+    pass
+
+This function is responsible for laoding the datasets.yaml configuration for each dataset that is specified and required to be downloaded. The logic of the function should be as follows:
+1. Perform validation checks on the path, these should include - checking the name and URL is available for the dataset, chekc if the file is required to be extracted after download, checking the destination folder exists, make sure that the checksum is valid. ✅
+2. Errors that might occur include - dataset not found due to naming errors, fields missing and i am not sure what else could cause errors.
+3. I am assuming the return type should be a dictionary where the keys are the dataset names and the values are a dictionary of the other values in the config file such as URL, destination folder, extract after download, etc. ✅
+
+
+------------------------ Task 1: Config Parser Design ✅ (Mostly Correct!) ------------------------
+
+Your logic is good, but let's refine:
+What you got right:
+
+Validation checks are spot-on ✅
+Dictionary return type is correct ✅
+
+What to improve:
+
+def load_config(config_path):
+    """
+    Questions to think about:
+    
+    1. What if config_path doesn't exist?
+       → Should you raise FileNotFoundError immediately?
+       --> Yes i think we should raise the error immediately to avoid going through any more of the project with the error becasue if the config_path doesn't exist then the rest of teh project will likely casue more errors such as, trying to find the URL of the path that doesn't exist. 
+       
+    2. What if YAML is malformed?
+       → yaml.safe_load() can raise YAMLError - catch it?
+       --> I think we should catch this error as well. Like i said in the previous question, if there is a problem with the .yaml file then we will run into more problems later on in the project.
+       
+    3. What if 'datasets' key is missing?
+       → Is this a fatal error or return empty list?
+       --> I think this is fatal error as it is the main "heading" for the strucutre of the datasets that we are required to downlaod. So if this is missing then the project will not be able to download any files. However we could return an empty list and then the project does not proceed to download any files. I am not sure how we can hanlde this error. 
+
+       💡Teacher guidance:
+       # Option 1: Fatal error (my recommendation)
+       if 'datasets' not in config:
+            raise ValueError("Config must have 'datasets' key")
+
+       # Option 2: Empty list (too permissive)
+       datasets = config.get('datasets', [])  # Fails silently - bad!
+       # WHY fatal? If someone loads empty config, they expect an error, not silent success.
+       
+    4. Validation depth: Do you validate checksums are valid hex?
+       → Or just check the field exists?
+       --> We should make sure that the checksums are valid hex or else the input for the checksum field could be a bunch on nonsense. 
+
+       💡Teacher guidance:
+       import re
+
+        def is_valid_md5(checksum: str) -> bool:
+            return bool(re.match(r'^[a-fA-F0-9]{32}$', checksum))
+
+        def is_valid_sha256(checksum: str) -> bool:
+            return bool(re.match(r'^[a-fA-F0-9]{64}$', checksum))
+       
+    5. Return structure: Should it be a dict or a list of Dataset objects?
+       → Dict[str, dict] or List[DatasetConfig]?
+       --> I think for clarity a dictionary would make it easier to follow which objects we require and use throughout the project.
+
+       💡Teacher guidance:
+       # Option A: Dict[str, DatasetConfig]
+        configs = load_config('datasets.yaml')
+        cifar = configs['cifar10']  # Easy lookup by name
+
+        # Option B: List[DatasetConfig]  
+        configs = load_config('datasets.yaml')
+        for dataset in configs:  # Easy iteration for batch downloads
+            download(dataset)
+
+        # Which matches your use case better?
+        # → Downloading multiple datasets = iterating = List! 
+    """
+Challenge for you: Should validation happen IN load_config() or in a separate validate_config() function? What's more testable?
+--> I think we should create a separate validate_config() function, this makes the code more modular and testable since we can tweak the validate_config() function to check various validation steps without adding to many steps and lines of code to the load_config() function.
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+------------------------ Task 2: Logging Strategy ------------------------
+
+Write out what you'd log at each stage:
+
+Starting a download?
+- Log which file is being downloaded (name or URL)
+- Time download started
+
+Thread spawned?
+- Notify when a new thread has been spawned and what task it is allocated
+
+Chunk downloaded?
+- Notify when chunk downloader is being used 
+- Identify the chunk size of the downloads
+
+Download complete?
+- Notify the download has completed 
+- Identify where the file has been saved
+- Calculate how long the download took
+
+Validation failed?
+- What was the reason for validation failing 
+- Log request errors
+- Log which file caused the error(s)
+
+Think: In production, you might download 100 files. How do you make logs searchable and useful?
+- Logs should be organised by the file they represent
+
+------------------------ Task 2: Logging Strategy ✅ (Good, but missing details!) ------------------------
+
+You're thinking right, but let's be more specific:
+
+# What EXACTLY should the log messages look like?
+
+# ❌ Vague:
+logger.info("Download started")
+
+# ✅ Production-ready:
+logger.info(f"[{dataset_name}] Starting download: {url} ({file_size_mb:.2f} MB)")
+
+# Thread safety consideration:
+logger.info(f"[Thread-{thread_id}] [{dataset_name}] Downloaded chunk {chunk_num}/{total_chunks}")
+
+Your statement: "Logs should be organised by the file they represent"
+
+Question: How do you organize logs by file when they're all in one downloader.log?
+--> I am not sure how we would organise logs by file. I have never worked with logging files before so it this project is a great learnig step for me. In saying this i am not sure what the best method for saving logging the files would be especially if we want to make them searchable.
+
+💡 Options:
+
+Prefix every log with [dataset_name] (easy to grep)
+Separate log file per dataset (harder to debug concurrent issues)
+Structured logging (JSON format - industry standard!)
+
+Challenge: Research "structured logging" and consider if it's worth implementing.
+--> Structure logging makes use of the "structlog" module and allows you to split up the log entries into key/value pairs with incremental building. It also removes the hard work of writing hard-to-parse and hard-to-keep-consistent prose in your logs. I think this could be a good idea for this project. 
+
+💡 Teacher guidance:
+
+Three Approaches:
+
+1. Prefix logging (Simplest - Let's use this):
+
+logger.info(f"[cifar10] Starting download from {url}")
+logger.info(f"[cifar10] [Thread-3] Downloaded chunk 5/10")
+
+# Grep logs later:
+# grep "\[cifar10\]" downloader.log
+
+2. Structured logging (Industry standard - Future enhancement):
+
+import structlog
+
+log = structlog.get_logger()
+log.info("download_started", dataset="cifar10", url="...", size_mb=170)
+
+# Output as JSON:
+{"event": "download_started", "dataset": "cifar10", "url": "...", "timestamp": "..."}
+
+3. Separate log files (Overkill for now):
+
+logs/cifar10.log
+logs/mnist.log
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+------------------------ Task 3: Error Scenarios ------------------------
+
+List 5 things that could go wrong during downloads and how you'd handle each:
+
+Network timeout → Log that the network has timed out, know the progress of the download when the timeout occurred. Wait a certain amount of time and then resume the download from where the timeout occurred.
+
+Disk full → If disk is full, notify the user. Check for old or outdated logs and ask the use if it would be okay to remove them. Do not continue download if they file size will cause the disk to become full.
+
+Invalid URL → Log the request status (404, 4.., 200, etc), notify the user the URL is invalid with the current URL. Ask user to make sure the URL is correct before the program continues.
+
+Checksum mismatch → Notify the user that the checksum is invalid and ask if they would like to re-download the file, if yes - remove the downlaod and try again, if no - ask if the user would like to remove the corrupted file or not. Also ask user to check their internet connection or use a different download source if the problem persists.
+
+Partial download (resume scenario) → Continously log the progress of the download, if the download fails log the progess up until the failure. then notify the user and ask if they would like to try download the file again. Try and download from where the progess failed. 
+
+------------------------ Task 3: Error Scenarios ✅ (Excellent thinking!) ------------------------
+
+Your error handling is thoughtful, but some refinements:
+
+Network timeout:
+
+"Wait a certain amount of time and then resume"
+
+Teacher question:
+
+How long do you wait? Exponential backoff? (Look this up!)
+How many retries before giving up?
+What if the server is down for hours?
+--> I do not think we should use Exponential backoff when we have a timeout or network failure. As you said the server could be down for hours so there would be no point in using the Exponential backoff for this project. We should set a standard waiting time and a standard number of retires until the program "gives up". I think 3-5 retires is a good amount. If there server is down we should catch that error, report back to the user so that they can try again at a later stage. ❌
+
+💡Teacher feedback: You're mixing up scenarios! Let me clarify:
+
+When to Use Exponential Backoff:
+
+Scenario 1: Temporary network hiccup (USE exponential backoff)
+Attempt 1: Wait 1 second → Retry
+Attempt 2: Wait 2 seconds → Retry  
+Attempt 3: Wait 4 seconds → Retry
+Attempt 4: Wait 8 seconds → Give up
+
+Why? The server might be momentarily overloaded. Backing off avoids hammering it.
+
+Scenario 2: Server is completely down (DON'T use exponential backoff)
+
+If connection refused or DNS fails → Fail immediately, don't retry
+
+Disk full:
+
+"Ask user to make sure the URL is correct"
+
+Reality check: This is often a batch process (no user to ask!). How would a production system handle this?
+💡 Better approach:
+
+Pre-check available disk space before starting
+Reserve space for the download
+Fail fast with clear error message
+
+Checksum mismatch:
+Great thinking, but asking the user mid-download is impractical.
+Production approach:
+# Pseudocode
+if checksum_failed:
+    if retry_count < max_retries:
+        logger.warning(f"Checksum failed, attempt {retry_count}/{max_retries}")
+        delete_file()
+        retry_download()
+    else:
+        logger.error(f"Checksum failed after {max_retries} attempts. Corrupted source?")
+        raise ChecksumValidationError()
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+------------------------ Questions for You Before Stage 2: ------------------------
+
+Testing Strategy: Should we write tests for the config parser before building the downloader logic? (TDD approach)
+-> Yes i think it is a good idea to use the TDD approach as it helps catch bugs early and it makes sure I write clean reliable and testable code from the beginning of the project.
+
+Resume Mechanism: Where should we store partial download state?
+- A separate .progress file for each download?
+- A SQLite database?
+- JSON metadata files?
+-> I am not sure what would be the best option for storing the partial download state. I have never worked with partial downloads before.
+
+
+Thread Safety: If multiple threads write progress updates, what could go wrong? (Think about this now—it'll matter soon!)
+-> We will need separate progress variables for each thread to update to make sure there is no overlap between the threads. Therefore we need ot make sure that there is proper synchronization of the threads. We need to be award of race conditions, data corruption, memory inconsistency, inaccurate reporting, and performance degradation. 
+
+------------------------ Questions for Stage 2: Great Responses! ------------------------
+
+TDD Approach: ✅ Correct! We'll write tests first.
+Resume Mechanism: You're honest about not knowing - perfect!
+
+Teacher answer:
+
+SQLite = overkill for this project
+JSON metadata = my recommendation
+
+// downloads/.progress/cifar10.json
+{
+  "url": "https://...",
+  "total_size": 170498071,
+  "downloaded_bytes": 50000000,
+  "chunks_completed": [0, 1, 2],
+  "chunks_pending": [3, 4, 5, 6, 7],
+  "last_updated": "2025-10-01T10:30:00Z"
+}
+
+Why JSON:
+
+Human-readable (debugging!)
+Easy to delete/reset
+No schema setup needed
+Fast reads/writes
+
+Thread Safety: ✅ You identified the key issues!
+One critical point you missed:
+# ❌ NOT thread-safe:
+progress = 0
+def download_chunk():
+    progress += chunk_size  # Race condition!
+
+# ✅ Thread-safe:
+from threading import Lock
+progress_lock = Lock()
+progress = 0
+
+def download_chunk():
+    with progress_lock:
+        progress += chunk_size
+
+
+1. Should validation happen in load_config() or separate function? Why?
+--> I think we should create a separate validate_config() function, this makes the code more modular and testable since we can tweak the validate_config() function to check various validation steps without adding to many steps and lines of code to the load_config() function. We can create a decorator function validate_config() and wrap the laod_config() fucntion with the decorator to perform the checks for us. 
+
+2. How would you implement exponential backoff for retries?
+   (Write pseudocode)
+
+  def exp_backoff(action_function, max_retries, initial_delay_seconds):
+    current_attempt = 0
+    current_delay = initial_delay_seconds
+
+    while current_attempt < max_retries:
+        try:
+            result = action_function()  // Execute the desired action
+            RETURN result  // Action succeeded
+        except Exception AS e:
+            PRINT "Attempt " + (current_attempt + 1) + " failed: " + e.message
+
+            IF current_attempt == max_retries - 1:
+                RAISE Exception("Maximum retries reached, operation failed.")
+
+            jitter = RANDOM.uniform(0, 1)  // Add random jitter
+            sleep_time = current_delay + jitter
+            PRINT "Retrying in " + sleep_time + " seconds..."
+            SLEEP sleep_time
+
+            current_delay = min(current_delay * 2, max_delay)  // Double the delay for the next attempt
+            current_attempt = current_attempt + 1
+
+    RAISE Exception("Unexpected error: Should have either returned or raised earlier.")
+
+
+3. Design the JSON structure for resume files - what fields do you need?
+--> {
+    "dataset_name": "cifar10",
+    "url": "https://...",
+    "destination": "downloads/cifar10/cifar-10-python.tar.gz",
+    "total_size_bytes": 170498071,
+    "downloaded_bytes": 85249036,
+    "download_strategy": "chunked",
+    "chunks": {
+        "chunk_size_bytes": 10485760,
+        "total_chunks": 17,
+        "completed_chunks": [0, 1, 2, 3, 4, 5, 6, 7],
+        "pending_chunks": [8, 9, 10, 11, 12, 13, 14, 15, 16]
+    },
+    "last_updated": "2025-10-01T14:30:00Z",
+    "checksum": "c58f30108f718f92721af3b95e74349a",
+    "checksum_type": "md5"
+}
+
+Why these fields?
+
+completed_chunks: Resume knows exactly where to continue
+last_updated: Detect stale resume files (older than 24 hours?)
+destination: Handle absolute vs. relative paths
+
+4. Where should resume files be stored?
+   - Same folder as downloads?
+   - Separate .progress/ folder?
+   - Why does it matter?
+   --> I think resume files should be stored in a separate .progress/ folder so that they are easy to find and not confused with the already downloaded files. 
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+------------------------ Finding Dataset Information ------------------------
+
+How to Find Dataset URLs, Sizes, Checksums, and Formats:General Process:
+
+Go to the dataset's official source (Kaggle, UCI ML Repository, Hugging Face, university sites)
+Look for download links - usually on a "Download" or "Data" page
+Check documentation - often has checksums and file info
+Use command-line tools to verify after download (I'll show you)
+Tools for Verification:
+
+# Get file size (after downloading manually once)
+ls -lh filename.tar.gz
+
+# Calculate MD5 checksum
+md5sum filename.tar.gz
+
+# Calculate SHA256 checksum  
+sha256sum filename.tar.gz
+
+# Check archive format
+file filename.tar.gz  # Shows "gzip compressed data"
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Q1: In DatasetConfig, why do we need both `url` and `urls` fields?
+--> We need url for datasets that only have one file to download while we need the pural "urls" for datasets that contain multiple files to download
+
+Q2: What happens if someone puts both 'url' and 'urls' in YAML? 
+    Should validate_dataset_config() allow this?
+--> Rule: Either use url (single file) OR urls (multiple files), never both!
+
+# Validation logic:
+has_url = 'url' in dataset_dict
+has_urls = 'urls' in dataset_dict
+
+if has_url and has_urls:
+    raise ValueError(f"Dataset '{name}' has both 'url' and 'urls'. Use only one.")
+if not has_url and not has_urls:
+    raise ValueError(f"Dataset '{name}' missing both 'url' and 'urls'. Need one.")
+
+Q3: Should file_size validation check against actual file size during download?
+    Or only validate it's a positive number in config?
+--> It should validate that it is a positive number as well as against the actual file size during download.
+
+Q4: If checksum is "skip", should we still validate the format?
+-->  No! If someone writes checksum: "skip", we shouldn't validate it's a valid MD5/SHA256. It's a special keyword meaning "don't validate this file."
+
+if checksum.lower() != "skip":
+    # Only then validate it's proper hex format
+    validate_checksum_format(checksum, checksum_type)

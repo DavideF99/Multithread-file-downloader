@@ -1,0 +1,42 @@
+# datasets.yaml
+# Configuration for ML dataset downloads
+
+# Global settings (optional but recommended in production)
+settings:
+  max_retries: 3
+  timeout_seconds: 30
+  chunk_size_mb: 10 # For chunked downloads
+  concurrent_downloads: 4 # Max parallel file downloads
+  log_level: "INFO"
+
+# Dataset definitions
+datasets:
+  - name: "cifar10"
+    url: "https://www.cs.toronto.edu/~kriz/cifar-10-python.tar.gz"
+    file_size: 170498071 # bytes (important for validation!)
+    checksum: "c58f30108f718f92721af3b95e74349a" # MD5 hash
+    checksum_type: "md5" # or "sha256"
+    download_strategy: "chunked" # single_threaded | multi_file | chunked
+    extract_after_download: true
+    extract_format: "tar.gz" # tar.gz | zip | tar | gz
+    destination_folder: "downloads/cifar10"
+
+  - name: "mnist"
+    url: "http://yann.lecun.com/exdb/mnist/train-images-idx3-ubyte.gz"
+    file_size: 9912422 # bytes
+    checksum: "440fcabf73cc546fa21475e81ea370265605f56be210a4024d2ca8f203523609"
+    checksum_type: "sha256"
+    download_strategy: "single_threaded" # Small file, no need for chunks
+    extract_after_download: true
+    extract_format: "gz"
+    destination_folder: "downloads/mnist"
+
+  - name: "imdb_reviews"
+    url: "https://ai.stanford.edu/~amaas/data/sentiment/aclImdb_v1.tar.gz"
+    file_size: 84125825 # ~84 MB
+    checksum: "c40f74a18d3b61f90feba1e17730e0d38e8b97c05fde7008942e91923d1658fe"
+    checksum_type: "sha256"
+    download_strategy: "chunked" # Good size for chunk testing
+    extract_after_download: true
+    extract_format: "tar.gz"
+    destination_folder: "downloads/imdb_reviews"
