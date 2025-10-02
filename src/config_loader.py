@@ -151,22 +151,47 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
     #               ^ This checks the string literal, not the value!
     
     # ✅ CORRECT:
-    if 'checksum' not in dataset_dict:
-        raise ValueError(f"Dataset '{name}' missing 'checksum'")
-    
-    checksum = dataset_dict['checksum']
-    checksum_type = dataset_dict.get('checksum_type', 'md5')
-    
-    if checksum.lower() != 'skip':
-        import re
-        if checksum_type == 'md5':
-            if not re.match(r'^[a-fA-F0-9]{32}$', checksum):
-                raise ValueError(f"Dataset '{name}' has invalid MD5 checksum format")
-        elif checksum_type == 'sha256':
-            if not re.match(r'^[a-fA-F0-9]{64}$', checksum):
-                raise ValueError(f"Dataset '{name}' has invalid SHA256 checksum format")
-        else:
-            raise ValueError(f"Dataset '{name}' checksum_type must be 'md5' or 'sha256'")
+    if has_url:  # Single file dataset
+        if 'checksum' not in dataset_dict:
+            raise ValueError(f"Dataset '{name}' missing 'checksum'")
+        
+        checksum = dataset_dict['checksum']
+        checksum_type = dataset_dict.get('checksum_type', 'md5')
+        
+        if checksum.lower() != 'skip':
+            import re
+            if checksum_type == 'md5':
+                if not re.match(r'^[a-fA-F0-9]{32}$', checksum):
+                    raise ValueError(f"Dataset '{name}' has invalid MD5 checksum format")
+            elif checksum_type == 'sha256':
+                if not re.match(r'^[a-fA-F0-9]{64}$', checksum):
+                    raise ValueError(f"Dataset '{name}' has invalid SHA256 checksum format")
+            else:
+                raise ValueError(f"Dataset '{name}' checksum_type must be 'md5' or 'sha256'")
+
+    if has_urls:  # Multi-file dataset
+        if 'checksums' not in dataset_dict:
+            raise ValueError(f"Dataset '{name}' missing 'checksums'")
+        
+        checksums = dataset_dict['checksums']
+        checksum_type = dataset_dict.get('checksum_type', 'md5')
+        
+        # Validate each checksum in the list
+        for i, checksum in enumerate(checksums):
+            if checksum.lower() != 'skip':
+                import re
+                if checksum_type == 'md5':
+                    if not re.match(r'^[a-fA-F0-9]{32}$', checksum):
+                        raise ValueError(
+                            f"Dataset '{name}' has invalid MD5 checksum format at index {i}"
+                        )
+                elif checksum_type == 'sha256':
+                    if not re.match(r'^[a-fA-F0-9]{64}$', checksum):
+                        raise ValueError(
+                            f"Dataset '{name}' has invalid SHA256 checksum format at index {i}"
+                        )
+                else:
+                    raise ValueError(f"Dataset '{name}' checksum_type must be 'md5' or 'sha256'")
     
 
     # Check 5: Validate download_strategy
