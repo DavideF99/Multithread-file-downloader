@@ -430,3 +430,103 @@ What You've Accomplished So Far
 5. ✅ Understanding of fixtures, regex patterns, and test isolation
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+---------------------- Stage 3.1: Logging System ----------------------
+
+
+Why Logging Matters in ML/AI
+
+In production ML pipelines:
+- Downloads can run for hours
+- Multiple datasets download concurrently
+- Debugging failures requires detailed logs
+- You need searchable, structured logs for auditing
+
+---------------------- Question 1: Log Levels ---------------------- 
+
+For each scenario, what log level should you use?
+
+a) Download started for CIFAR-10
+   → Level: INFO (DEBUG/INFO/WARNING/ERROR)
+
+b) Network timeout occurred, retrying (attempt 2/3)
+   → Level: WARNING
+
+c) Checksum validation failed after 3 attempts
+   → Level: ERROR
+
+d) Thread spawned to download chunk 5/10
+   → Level: INFO
+
+e) Download completed successfully in 45.2 seconds
+   → Level: INFO ❌
+   This should be DEBUG. Here's why:
+    INFO = significant events users care about ("Download started", "Download complete")
+    DEBUG = detailed diagnostic info for developers ("Thread spawned", "Chunk 5 received")
+
+---------------------- Question 2: Log Format ----------------------
+
+Design a log message format. What information should EVERY log line include?
+
+Consider:
+- Timestamp?
+- Thread ID (for debugging concurrent downloads)?
+- Dataset name?
+- Log level?
+- Message?
+
+Write an example log line for "Started downloading CIFAR-10"
+
+--> log_format = '%(asctime)s - [%(levelname)s] - [Thread-%(thread)d] - %(message)s'
+
+
+---------------------- Question 3: Log Files ----------------------
+
+Should you have:
+a) One log file for everything: downloader.log
+b) Separate log files per dataset: cifar10.log, mnist.log
+c) Both console output AND file output?
+
+Why? What are the tradeoffs?
+I think we should have separate log files for each indivdual dataset. This would make searching for the log files of each dataset easier and it will help with debugging each dataset and the log files. I am not sure if we should have both console and file output and I am not sure what the tradeoffs are. ❌
+****
+Problem: If you download 50 datasets, you get 50 log files. Now try to debug why downloads are slow overall - you'd need to check 50 files!
+Better approach: Both console AND file output
+
+File: Everything goes to logs/downloader.log (searchable, persistent)
+Console: INFO+ messages (so you see progress while it runs)
+
+Tradeoffs:
+
+One file = Easy to search across all downloads, but large file
+Per-dataset files = Isolated debugging, but can't see big picture
+Both console + file = Best of both worlds (industry standard)
+
+---------------------- Question 4: Thread Safety ----------------------
+
+Multiple threads will write logs simultaneously.
+
+Is Python's logging module thread-safe by default?
+Research this and write your answer.
+
+If yes, do you still need locks around logging calls?
+
+--> After researching i found that Python's logging module is thread-safe and does not require thread locks around logging calls if we make use of of the standard Logger and Handler instance on the different threads. Therefore, the logging module should handle the necessary synchronisation to prevent race conditions. 
+
+----- Key points for logger.py -----
+
+1. RotatingFileHandler prevents logs from growing forever
+2. Console = INFO+, File = DEBUG+ (different levels)
+3. Thread ID in format for debugging concurrent downloads
+4. Check for existing handlers to prevent duplicates
+
+
+
+ Stage 2: Logging System (Complete)
+
+✅ 1. Thread-safe logging with proper formatting
+✅ 2. Console + file output with different levels
+✅ 3. Rotating file handler (prevents infinite growth)
+✅ 4. 5 passing tests for logging
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
