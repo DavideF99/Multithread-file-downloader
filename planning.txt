@@ -530,3 +530,201 @@ If yes, do you still need locks around logging calls?
 ✅ 4. 5 passing tests for logging
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-------------------------- Stage 3 - Downloader --------------------------
+
+--- Question 1: HTTP Request Design ---
+When downloading a file, what information do you need?
+
+1. From the HTTP response headers, which fields matter?
+   - Content-Length: The content-length returns the size of the response body whihc is important for our validation process to make sure that the file we are downloading matches the length (size) of the file we have in out config.yaml module. 
+   - Content-Type: content-type specifies the data type of the data is being downloaded which is importatnt to know.Helps with logging
+   - Accept-Ranges: The accept-ranges response header is important for out resume capability as it allows clients to request partial content instead of the entire resource. This is important so that we can request the content from the point of resuming the download. 
+
+2. What HTTP response codes should you handle differently?
+   - 200: the request was successful so we should log this and continue with the program, no special handling needed.
+   - 206: response to a range request when the client has requested a part or parts of a resource. This does require special handling as it relates to the resume capability of our program. 
+   - 404: The server cannot find the requested resource. This means that the browser cannot find the URL we want to request from. We need to log this and then make sure that the URL we have in our config.yaml file is correct.
+   - 403: Fail immediately
+   - 500: The server has encountered a situation it does not know how to handle. We should handle this by logging the server error then performing our exponential backoff retry strategy. 
+   - 503: The server is not ready to handle the request. We should log this error and then perform out exponential backoff retry strategy. 
+
+3. Should you download the entire file into memory then write?
+   Or stream chunks and write incrementally?
+   Why? (Consider a 10GB file)
+   --> I think it is better to stream the data in chunks and then write incrementally to avod overloading the device memory and slowwing down the process or even crashing the device altogether. 
+
+--- Question 2: Retry Logic Design ---
+
+When should you retry vs. give up?
+
+1. Network timeout after 30 seconds
+   - Retry? yes, the number of retries should depend on the exponential backoff algorithm
+   - Wait how long between retries? again this would depend on the exponential backoff algorithm, but we start at around 2 seconds and tthen can backoff to around 8 seconds. 
+
+2. HTTP 404 (Not Found)
+   - Retry?  No
+   - Why?
+   This indicates that the URL we used for the request cannot be found by the browser so if we keep on retrying we wont get a different result so we should log the issus and then nottify the client to check the URL is correct. 
+
+3. HTTP 503 (Service Unavailable)
+   - Retry? Yes
+   - Why?
+   The service my just be Temporarily Unavailable so we can use our exponential backoff stratgey to retry a certain number of times before stopping.
+
+4. Exponential backoff calculation:
+   - Attempt 1: Wait 2 seconds
+   - Attempt 2: Wait 4 seconds
+   - Attempt 3: Wait 8 seconds
+   - Formula: delay = min(base_delay * (2 ** attempt), max_delay)
+
+5. What's the maximum wait time (backoff cap)?
+   Why do you need a cap?
+   We need a backoff cap so that we prevent waiting a long amount of time between retries  with the exponential backoff algorithm. 
+
+--- Question 3: Progress Tracking ---
+
+Progress bars need to update as data arrives.
+
+1. How often should progress update?
+   - Every byte? This could cause a big overhead of compute power for just tracking the progress of the download.
+   - Every chunk? Update every chunk received from the network, typically 8KB-64KB. This is already chunked by requests.iter_content(chunk_size=8192).
+
+2. What information does a progress bar need?
+   - Total size (bytes)
+   - Downloaded so far (bytes)
+
+3. If the server doesn't provide Content-Length, can you show progress?
+   What would you show instead?
+   --> I don't think we would be able to show the progress if the server doesn't provide the content length. Then we could possible should the number of bytes downloaded or the number of chunks downloaded. 
+
+--- Question 4: Error Handling Strategy --- 
+
+What errors can occur during download?
+
+1. Connection errors (network unreachable):
+   Action: log the issue then Use the exponential backoff strategy to retry connecting to the network. Check to make sure the client is connected to the internet.
+
+2. Timeout errors (server doesn't respond):
+   Action: log the error then Use the exponential backoff strategy to retry a ceratin number of times while notifying the client before stopping at the backoff cap and notfying the client about the error.
+
+3. HTTP errors (4xx, 5xx status codes):
+   Action: 4xx (Client errors like 404, 403): Don't retry - client's fault
+           5xx (Server errors like 500, 503): Retry - server's fault
+
+4. Disk full while writing:
+   Action: 1) Check available disk space BEFORE downloading. 2) If insufficient, fail immediately with clear error. 3) User decides what to delete, not your program
+
+5. Incomplete download (received < expected):
+   Action: 1) Log the mismatch 2) Fail the download 3) If resume is enabled, next run will continue from where it stopped
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-------------------------- Stage 4 - Resume Capability & Progress Persistence --------------------------
+
+------------- Question 1: HTTP Range Headers  -------------
+
+ HTTP Range headers let you request specific byte ranges of a file.
+
+1. If a file is 10,000 bytes and you've downloaded 6,000 bytes,
+   what Range header do you send?
+   Range: bytes= 6000-10000
+   
+2. What HTTP status code indicates the server supports ranges?
+   Status: 206
+   
+3. What HTTP status code do you get for a range request?
+   Status: 206
+   
+4. If the server doesn't support ranges, what happens?
+   a) Request fails
+   b) Server sends entire file (status 200)
+   c) Server sends error
+   Answer: b - Server sends entire file (status 200)
+   
+5. Where do you check if server supports ranges?
+   Response header: accept-ranges
+
+------------- Question 2: Progress File Design -------------
+
+You need to save download state between runs.
+
+1. What information must be saved to resume?
+   - URL: Yes 
+   - Downloaded bytes: Yes 
+   - Total size: Yes 
+   - Destination path: Yes 
+   - Checksum: No
+   - What else? I do not think we need anything else to resume the download
+
+2. Where should progress files be stored?
+   a) Same folder as download
+   b) Separate .progress/ folder
+   c) /tmp directory
+   Answer: in a separate .progress/ folder Why? --> this helps keep the downloads folder clean and allows for automatic cleanup of Temporary progress files
+   
+3. Progress file naming:
+   If downloading to "downloads/cifar10/data.tar.gz"
+   Progress file should be: .progress/cifar10
+   
+4. When should progress files be deleted?
+   - After successful download: No
+   - After validation passes: Yes
+   - After extraction: Yes
+   - Never (user deletes manually): No
+
+5. What if the destination file exists but progress file doesn't?
+   Should you:
+   a) Resume from file size
+   b) Start fresh (overwrite)
+   c) Ask user
+   Answer: a - Resume from file size
+
+------------- Question 3: Resume Logic -------------
+
+Design the resume workflow:
+
+1. Start of download:
+   - Check if progress file exists
+   - If yes: Load downloaded_bytes
+   - Check if partial file exists
+   - If file size != downloaded_bytes → ?
+   
+2. Making the request:
+   - If resuming: Add Range header
+   - If not resuming: Regular GET request
+   
+3. During download:
+   - How often should progress file update?
+     Every chunk? Every 10 chunks? Every MB? --> I think it should be updated after every MB so that if the is an error we know exactly where the download stopped
+   - Why not update every chunk? --> if an error occurs halfway through the chunk of data we will have to resume the download from the beginning of the chunk.
+   
+4. After download completes:
+   - Delete progress file: No
+   - Keep it for validation: Yes
+   
+5. Error during resume:
+   - What if server now returns 404?
+   - What if file size changed?
+   - What if Range request fails?
+
+------------- Question 4: File Append Mode -------------
+
+When resuming, you need to append to existing file.
+
+1. What open() mode for appending binary data?
+   Mode: "ab" mode
+   
+2. If you open in 'wb' mode when resuming, what happens?
+   Answer: you will overwrite the file and lose all previously saved data.
+   
+3. Before appending, should you validate the partial file?
+   - Check file size matches progress: Yes
+   - Check partial checksum: No (Hard!)
+   
+4. What if partial file is corrupted?
+   Should you:
+   a) Resume anyway
+   b) Delete and start fresh
+   c) Try to detect corruption
+   Answer: c - Try to detect corruption
