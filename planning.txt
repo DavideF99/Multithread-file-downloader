@@ -628,7 +628,7 @@ What errors can occur during download?
 
 1. If a file is 10,000 bytes and you've downloaded 6,000 bytes,
    what Range header do you send?
-   Range: bytes= 6000-10000
+   Range: bytes= 6000- (open ended dash means from xxxx to end)
    
 2. What HTTP status code indicates the server supports ranges?
    Status: 206
@@ -643,7 +643,7 @@ What errors can occur during download?
    Answer: b - Server sends entire file (status 200)
    
 5. Where do you check if server supports ranges?
-   Response header: accept-ranges
+   Response header: accept-ranges or Accept-Ranges (capitalization matters in some tools, though HTTP headers are case-insensitive)
 
 ------------- Question 2: Progress File Design -------------
 
@@ -655,7 +655,8 @@ You need to save download state between runs.
    - Total size: Yes 
    - Destination path: Yes 
    - Checksum: No
-   - What else? I do not think we need anything else to resume the download
+   - What else? --> Last modified timestamp: To detect if download was stale
+C                   Checksum type: To know which algorithm to use for validation
 
 2. Where should progress files be stored?
    a) Same folder as download
@@ -665,7 +666,8 @@ You need to save download state between runs.
    
 3. Progress file naming:
    If downloading to "downloads/cifar10/data.tar.gz"
-   Progress file should be: .progress/cifar10
+   Progress file should be: .progress/cifar10/data.tar.gz.progress
+   Why? --> If you download multiple files to cifar10/ folder, they'd overwrite each other's progress!
    
 4. When should progress files be deleted?
    - After successful download: No
@@ -678,7 +680,13 @@ You need to save download state between runs.
    a) Resume from file size
    b) Start fresh (overwrite)
    c) Ask user
-   Answer: a - Resume from file size
+   Answer: b - Start fresh (overwrite)
+Why? Without a progress file, you don't know:
+- What URL was being downloaded
+- If the file is corrupted
+- If it's even the right file
+
+Starting fresh is safer.
 
 ------------- Question 3: Resume Logic -------------
 
@@ -688,7 +696,14 @@ Design the resume workflow:
    - Check if progress file exists
    - If yes: Load downloaded_bytes
    - Check if partial file exists
-   - If file size != downloaded_bytes → ?
+   - If file size != downloaded_bytes → 
+
+Action: Delete partial file and start fresh
+Reason: File size mismatch indicates:
+- File was manually edited
+- Previous download crashed mid-write
+- Filesystem corruption
+Resume would append to wrong position = corrupted file
    
 2. Making the request:
    - If resuming: Add Range header
@@ -696,17 +711,22 @@ Design the resume workflow:
    
 3. During download:
    - How often should progress file update?
-     Every chunk? Every 10 chunks? Every MB? --> I think it should be updated after every MB so that if the is an error we know exactly where the download stopped
-   - Why not update every chunk? --> if an error occurs halfway through the chunk of data we will have to resume the download from the beginning of the chunk.
+     Every chunk? Every 10 chunks? Every MB? --> Every 1-5 MB OR every 10 seconds (whichever comes first)
+   - Why not update every chunk? 
+Why? Balance between:
+- Frequent updates = more accurate resume point, but more disk I/O
+- Infrequent updates = less overhead, but lose more progress on crash
+Every 8KB chunk = 100,000s of file writes per GB!
+Every 1MB = reasonable compromise
    
 4. After download completes:
    - Delete progress file: No
    - Keep it for validation: Yes
    
 5. Error during resume:
-   - What if server now returns 404?
-   - What if file size changed?
-   - What if Range request fails?
+   - What if server now returns 404? --> Delete progress file, delete partial file, fail immediately (URL is dead)
+   - What if file size changed? -- Delete progress file, delete partial file, start fresh (Server's file was replaced/updated)
+   - What if Range request fails? --> (server returns 200 instead of 206): Log warning, delete partial file, start fresh download (Server doesn't support resume)
 
 ------------- Question 4: File Append Mode -------------
 
@@ -727,4 +747,105 @@ When resuming, you need to append to existing file.
    a) Resume anyway
    b) Delete and start fresh
    c) Try to detect corruption
-   Answer: c - Try to detect corruption
+   Answer: b - Delete and start fresh
+Why? Detecting corruption requires:
+- Checksumming entire partial file (expensive for GB files)
+- Knowing expected checksum for partial data (almost never available)
+Practical approach: If file size mismatches progress, assume corruption and restart.
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+-------------------------- Stage 5 - Checksum Validation & File Integrity --------------------------
+
+------------- Question 1: Checksum Algorithms  -------------
+
+1. What's the difference between MD5 and SHA256?
+   - MD5 output size: _____ (bits/bytes)
+   - SHA256 output size: _____ (bits/bytes)
+   - Which is more secure? _____
+   - Which is faster? _____
+   - When to use each? _____
+
+2. What is a hash collision?
+   Definition: _____
+   
+   Why does it matter for validation?
+   _____
+
+3. If you compute MD5 of a 10GB file twice, will you get:
+   a) Different hashes each time
+   b) Same hash both times
+   c) Depends on file content
+   Answer: _____
+
+4. Can you tell file size from a checksum?
+   Yes / No
+   Why? _____
+
+------------- Question 2: When to Validate  -------------
+
+1. Should you validate DURING download or AFTER complete?
+   Option A: Calculate checksum as chunks arrive
+   Option B: Read entire file after download completes
+   
+   Trade-offs:
+   - Memory usage: _____
+   - Detection speed: _____
+   - Implementation complexity: _____
+   
+   Your choice: _____ Why? _____
+
+2. What if validation fails?
+   a) Retry download immediately
+   b) Delete file and fail
+   c) Keep file but log error
+   Answer: _____ Why? _____
+
+3. Should you validate if checksum is 'skip'?
+   Yes / No
+   
+4. What if user provides wrong checksum?
+   - Downloaded file is actually correct
+   - But validation fails (wrong expected hash)
+   How do you handle this?
+
+------------- Question 3: Partial File Validation -------------
+
+Resume scenario: 
+- Downloaded 5GB of 10GB file
+- Program crashes
+- Resume from 5GB
+
+Question: Can you validate the partial 5GB file?
+   Yes / No
+   
+If yes, how? _____
+If no, why not? _____
+
+Industry approach:
+- Validate during download: Yes / No
+- Validate partial files: Yes / No
+- Validate complete file only: Yes / No
+
+------------- Question 4: Performance Considerations -------------
+
+Checksumming a 10GB file:
+
+1. If you read entire file into memory:
+   Memory usage: _____
+   Problem: _____
+
+2. If you read in chunks:
+   Memory usage: _____
+   How it works: _____
+
+3. Typical checksum speed: ~500 MB/s
+   Time to checksum 10GB: _____
+   
+4. Should checksumming block progress bar?
+   Yes / No
+   Why? _____
+
+5. Can you checksum and download simultaneously?
+   Yes / No
+   How? _____

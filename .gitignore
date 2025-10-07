@@ -1,1 +1,23 @@
-/venv
+# Progress files (temporary download state)
+.progress/
+
+# Downloaded datasets (too large for git)
+downloads/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Logs
+logs/
+*.log
+
+# Virtual environment
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
