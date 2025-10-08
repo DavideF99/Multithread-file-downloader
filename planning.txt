@@ -760,54 +760,54 @@ Practical approach: If file size mismatches progress, assume corruption and rest
 ------------- Question 1: Checksum Algorithms  -------------
 
 1. What's the difference between MD5 and SHA256?
-   - MD5 output size: _____ (bits/bytes)
-   - SHA256 output size: _____ (bits/bytes)
-   - Which is more secure? _____
-   - Which is faster? _____
-   - When to use each? _____
+   - MD5 output size: 128bits/16 bytes (bits/bytes)
+   - SHA256 output size: 256bits/32bytes (bits/bytes)
+   - Which is more secure? SHA256 is more secure
+   - Which is faster? MD5 is faster
+   - When to use each? MD5 - Only for non-security purposes such as checksums, file integrity verification, or quick fingerprinting of data. SHA256 - For security-sensitive applications like digital signatures, password hashing (with salt and key stretching), SSL/TLS, and blockchain.
 
 2. What is a hash collision?
-   Definition: _____
+   Definition: A hash collision occurs when two different inputs produce the same hash output.
    
    Why does it matter for validation?
-   _____
+ --> It matters for validation because the whole point of using a hash for validation is to verify integrity or authenticity — and a hash collision can break that guarantee.
 
 3. If you compute MD5 of a 10GB file twice, will you get:
    a) Different hashes each time
    b) Same hash both times
    c) Depends on file content
-   Answer: _____
+   Answer: b - Same hash both times
 
 4. Can you tell file size from a checksum?
-   Yes / No
-   Why? _____
+   No
+   Why? A checksum (or hash) is a fixed-size output that represents a summary of the data’s contents — not its length or structure.
 
 ------------- Question 2: When to Validate  -------------
 
 1. Should you validate DURING download or AFTER complete?
    Option A: Calculate checksum as chunks arrive
-   Option B: Read entire file after download completes
+   Option B: Read entire file after download completes - We should use this option
    
    Trade-offs:
-   - Memory usage: _____
-   - Detection speed: _____
-   - Implementation complexity: _____
+   - Memory usage: Lower — you only need to read the file once after download, not store partial states for every chunk.
+   - Detection speed: Slower — corruption or tampering is detected only at the end of the download.
+   - Implementation complexity: Simpler — easier to implement a single checksum verification once the file is complete.
    
-   Your choice: _____ Why? _____
+   Your choice: option B Why? --> Because it’s reliable, simple, and accurate. Calculating the checksum after the full file is downloaded ensures the hash covers all bytes, guaranteeing integrity verification is complete and consistent. It also avoids the extra logic, bookkeeping, and partial-hash management required for real-time validation.
 
 2. What if validation fails?
    a) Retry download immediately
    b) Delete file and fail
    c) Keep file but log error
-   Answer: _____ Why? _____
+   Answer: b - delete file and fail Why? If validation fails, it means the file’s contents don’t match the expected checksum, indicating corruption, tampering, or an incomplete download. Keeping or using that file would be unsafe or unreliable. Deleting it ensures that no invalid or potentially harmful data remains, and failing clearly signals that the download process must be retried or investigated before proceeding.
 
 3. Should you validate if checksum is 'skip'?
-   Yes / No
+   No
    
 4. What if user provides wrong checksum?
    - Downloaded file is actually correct
    - But validation fails (wrong expected hash)
-   How do you handle this?
+   How do you handle this? Fail the validation step (as usual). Inform the user clearly. Allow user override (optional, manual decision).
 
 ------------- Question 3: Partial File Validation -------------
 
@@ -817,35 +817,35 @@ Resume scenario:
 - Resume from 5GB
 
 Question: Can you validate the partial 5GB file?
-   Yes / No
+ No
    
 If yes, how? _____
-If no, why not? _____
+If no, why not? --> A checksum (like MD5 or SHA-256) is calculated over the entire file. A partial file does not contain all the data, so computing the hash of the first 5GB will never match the expected hash of the complete 10GB file.
 
 Industry approach:
-- Validate during download: Yes / No
-- Validate partial files: Yes / No
-- Validate complete file only: Yes / No
+- Validate during download: No (can't validate incomplete file)
+- Validate partial files: No (hash requires complete data)
+- Validate complete file only: Yes (only way to validate)
 
 ------------- Question 4: Performance Considerations -------------
 
 Checksumming a 10GB file:
 
 1. If you read entire file into memory:
-   Memory usage: _____
-   Problem: _____
+   Memory usage: ~10GB
+   Problem: High memory consumption; may crash or slow down the system on machines with limited RAM.
 
 2. If you read in chunks:
-   Memory usage: _____
-   How it works: _____
+   Memory usage: Small, e.g., 1–64 MB per chunk
+   How it works: Read the file piece by piece. Update the checksum incrementally for each chunk. At the end, the final hash reflects the checksum of the entire file without loading it all into memory.
 
 3. Typical checksum speed: ~500 MB/s
-   Time to checksum 10GB: _____
+   Time to checksum 10GB: 10 GB = 10 × 1024 MB = 10,240 MB. Time = 10,240 MB ÷ 500 MB/s = 20.48 seconds
    
 4. Should checksumming block progress bar?
-   Yes / No
-   Why? _____
+   No
+   Why? Checksumming can run in the background while showing download or processing progress. Blocking the UI would make the application feel unresponsive, even though the checksum can be computed incrementally.
 
 5. Can you checksum and download simultaneously?
-   Yes / No
-   How? _____
+   Yes
+   How? As chunks of data arrive from the network, feed them directly into the checksum calculation. Keep writing the chunks to disk while updating the hash incrementally. At the end of the download, the final checksum reflects the complete file.

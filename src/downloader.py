@@ -5,6 +5,7 @@ from tqdm import tqdm
 from src.logger import get_logger
 import json
 from datetime import datetime
+import hashlib
 
 def download_file(url, destination, expected_size=None, max_retries=3, base_delay=1, max_delay=60):
     """Download file with retry logic and progress tracking.
@@ -469,3 +470,161 @@ def cleanup_progress_file(destination):
             get_logger().debug(f"Deleted progress file: {progress_file}")
         except OSError as e:
             get_logger().warning(f"Failed to delete progress file: {e}")
+
+def calculate_checksum(file_path, checksum_type='md5', chunk_size=8192):
+    """
+    Calculate checksum of a file.
+    
+    Args:
+        file_path: Path to file
+        checksum_type: 'md5' or 'sha256'
+        chunk_size: Size of chunks to read (default 8KB)
+    
+    Returns:
+        str: Hexadecimal checksum string
+    
+    Raises:
+        ValueError: If checksum_type is invalid
+        IOError: If file cannot be read
+    """
+    logger = get_logger()
+    
+    # Select hash algorithm
+    if checksum_type.lower() == 'md5':
+        hasher = hashlib.md5()
+    elif checksum_type.lower() == 'sha256':
+        hasher = hashlib.sha256()
+    else:
+        raise ValueError(f"Unsupported checksum type: {checksum_type}")
+    
+    # Read file in chunks and update hash
+    try:
+        file_size = os.path.getsize(file_path)
+        
+        # Progress bar for validation
+        progress = tqdm(
+            total=file_size,
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+            desc=f'Validating {checksum_type.upper()}'
+        )
+        
+        with open(file_path, 'rb') as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+                progress.update(len(chunk))
+        
+        progress.close()
+        
+        return hasher.hexdigest()
+        
+    except IOError as e:
+        logger.error(f"Failed to read file for checksum: {e}")
+        raise
+
+
+def validate_checksum(file_path, expected_checksum, checksum_type='md5'):
+    """
+    Validate file checksum against expected value.
+    
+    Args:
+        file_path: Path to file to validate
+        expected_checksum: Expected checksum (hex string)
+        checksum_type: 'md5' or 'sha256'
+    
+    Returns:
+        bool: True if validation passes
+    
+    Raises:
+        ValueError: If checksum validation fails
+    """
+    logger = get_logger()
+    
+    # Skip validation if requested
+    if expected_checksum.lower() == 'skip':
+        logger.info("Checksum validation skipped (checksum='skip')")
+        return True
+    
+    logger.info(f"Validating {checksum_type.upper()} checksum...")
+    
+    # Calculate actual checksum
+    actual_checksum = calculate_checksum(file_path, checksum_type)
+    
+    # Compare (case-insensitive)
+    if actual_checksum.lower() == expected_checksum.lower():
+        logger.info(f"Checksum validation passed: {actual_checksum}")
+        return True
+    else:
+        logger.error(f"Checksum validation FAILED!")
+        logger.error(f"  Expected: {expected_checksum}")
+        logger.error(f"  Actual:   {actual_checksum}")
+        logger.error(f"  File may be corrupted or expected checksum is incorrect")
+        raise ValueError(
+            f"Checksum mismatch: expected {expected_checksum}, got {actual_checksum}"
+        )
+
+
+def download_and_validate(url, destination, expected_size=None, checksum=None,
+                          checksum_type='md5', max_retries=3, base_delay=1, max_delay=60):
+    """
+    Download file with resume capability and checksum validation.
+    
+    This is a wrapper around download_with_resume() that adds validation.
+    
+    Args:
+        url: URL to download from
+        destination: Local file path
+        expected_size: Expected file size (optional)
+        checksum: Expected checksum (optional)
+        checksum_type: 'md5' or 'sha256'
+        max_retries: Maximum retry attempts
+        base_delay: Base delay for exponential backoff
+        max_delay: Maximum backoff delay
+    
+    Returns:
+        None
+    
+    Raises:
+        Various exceptions on failure
+    """
+    logger = get_logger()
+    
+    try:
+        # Download file
+        download_with_resume(
+            url=url,
+            destination=destination,
+            expected_size=expected_size,
+            checksum=checksum,
+            checksum_type=checksum_type,
+            max_retries=max_retries,
+            base_delay=base_delay,
+            max_delay=max_delay
+        )
+        
+        # Validate checksum if provided
+        if checksum:
+            try:
+                validate_checksum(destination, checksum, checksum_type)
+                logger.info(f"Download and validation complete: {destination}")
+                
+                # Clean up progress file after successful validation
+                cleanup_progress_file(destination)
+                
+            except ValueError as e:
+                # Validation failed - delete corrupted file
+                logger.error(f"Validation failed, deleting file: {destination}")
+                if os.path.exists(destination):
+                    os.remove(destination)
+                raise
+        else:
+            logger.info(f"Download complete (no checksum validation): {destination}")
+            cleanup_progress_file(destination)
+            
+    except Exception as e:
+        logger.error(f"Download failed: {e}")
+        raise
