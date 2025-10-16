@@ -1,101 +1,110 @@
+"""
+Configuration loader for dataset YAML files.
+
+Loads and validates dataset configurations from YAML files.
+"""
+
 import yaml
-from typing import Dict, List, Optional
-from dataclasses import dataclass
+import re
 import os
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass
+
 
 @dataclass
 class DatasetConfig:
     """
     Represents a single dataset configuration.
     
-    Think: What data does YAML have that you need to pass around?
-    Look at your datasets.yaml structure and map each field.
+    Attributes:
+        name: Dataset name
+        url: Single URL (for single-file datasets)
+        urls: Multiple URLs (for multi-file datasets)
+        file_size: Expected file size in bytes (single file)
+        file_sizes: Expected file sizes (multi-file)
+        checksum: Expected checksum (single file)
+        checksums: Expected checksums (multi-file)
+        checksum_type: Type of checksum ('md5' or 'sha256')
+        download_strategy: Download strategy ('single_threaded', 'multi_file', 'chunked')
+        extract_after_download: Whether to extract after download
+        extract_format: Archive format ('tar.gz', 'zip', 'gz', etc.)
+        destination_folder: Base destination folder
     """
     name: str
-    url: Optional[str] = None  # Single URL
-    urls: Optional[List[str]] = None  # Multiple URLs (for multi-file datasets)
-    file_size: Optional[int] = None  # bytes
-    file_sizes: Optional[List[int]] = None  # For multi-file
+    url: Optional[str] = None
+    urls: Optional[List[str]] = None
+    file_size: Optional[int] = None
+    file_sizes: Optional[List[int]] = None
     checksum: Optional[str] = None
-    checksums: Optional[List[str]] = None  # For multi-file
-    checksum_type: str = "md5"  # "md5" or "sha256"
-    download_strategy: str = "single_threaded"  # "single_threaded" | "multi_file" | "chunked"
+    checksums: Optional[List[str]] = None
+    checksum_type: str = "md5"
+    download_strategy: str = "single_threaded"
     extract_after_download: bool = False
-    extract_format: Optional[str] = None  # "tar.gz" | "zip" | "gz" | None
+    extract_format: Optional[str] = None
     destination_folder: str = "downloads"
+
 
 def load_config(config_path: str) -> List[DatasetConfig]:
     """
-    Steps to implement:
+    Load dataset configurations from YAML file.
     
-    1. Check if file exists
-       - If not, raise FileNotFoundError with helpful message
+    Args:
+        config_path: Path to YAML configuration file
     
-    2. Open and read the YAML file
-       - Use yaml.safe_load()
-       - Catch yaml.YAMLError if malformed
+    Returns:
+        List of DatasetConfig objects
     
-    3. Validate top-level structure
-       - Check 'datasets' key exists
-       - Check it's a list
+    Raises:
+        FileNotFoundError: If config file doesn't exist
+        ValueError: If YAML is invalid or malformed
     
-    4. For each dataset dict in the list:
-       - Call validate_dataset_config()
-       - Convert dict to DatasetConfig object
-       - Add to results list
-    
-    5. Return list of DatasetConfig objects
+    Example:
+        >>> configs = load_config('datasets.yaml')
+        >>> for config in configs:
+        ...     print(f"Dataset: {config.name}, URL: {config.url}")
     """
-    # Step 1: Check if file exists
-    # ❌ PROBLEM 1: You check if `file` is None, but you haven't opened it yet!
-    # try: 
-    #     if file is None:  # ← `file` doesn't exist yet!
-    
-    # ✅ FIX: Check the path first
+    # Check if file exists
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Config file not found: {config_path}")
     
-    # Step 2: Open and read YAML
-    # ❌ PROBLEM 2: You call yaml.safe_load() without reading the file
-    # yaml.safe_load(file)  # ← What is `file` here?
-    
-    # ✅ FIX: Open file, then load
+    # Open and read YAML
     try:
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
     except yaml.YAMLError as e:
         raise ValueError(f"Invalid YAML format: {e}")
     
-    # Step 3: Validate top-level structure
-    # ❌ PROBLEM 3: You check if "datasets" in file, but `file` is not a dict
-    # if "datasets" in file:  # ← Should be `config`
-    
-    # ✅ FIX: Check the loaded config dict
+    # Validate top-level structure
     if 'datasets' not in config:
         raise ValueError("Config must contain 'datasets' key")
     
     if not isinstance(config['datasets'], list):
         raise ValueError("'datasets' must be a list")
     
-    # Step 4: Validate each dataset
-    # ❌ PROBLEM 4: You iterate over dataset_dict, but where did it come from?
-    # for dataset in dataset_dict:  # ← Should be config['datasets']
-    
-    # ✅ FIX: Iterate over the actual datasets list
+    # Validate each dataset
     results = []
     for dataset_dict in config['datasets']:
         validated = validate_dataset_config(dataset_dict)
         
         # Convert dict to DatasetConfig object
-        dataset_config = DatasetConfig(**validated)  # ← Use ** unpacking!
+        dataset_config = DatasetConfig(**validated)
         results.append(dataset_config)
     
-    # Step 5: Return list
     return results
 
-def validate_dataset_config(dataset_dict: dict) -> dict:
+
+def validate_dataset_config(dataset_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
     Validate a single dataset configuration dictionary.
+    
+    Args:
+        dataset_dict: Dictionary containing dataset configuration
+    
+    Returns:
+        Validated dictionary (same as input if valid)
+    
+    Raises:
+        ValueError: If validation fails with descriptive error message
     
     Required checks:
     1. 'name' field exists and is non-empty string
@@ -105,10 +114,8 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
     5. 'download_strategy' is one of: ["single_threaded", "multi_file", "chunked"]
     6. 'destination_folder' exists and is string
     7. If 'urls' exists, 'file_sizes' and 'checksums' must match length
-    
-    YOUR TASK: Think about each validation. What error message would help debug?
     """
-
+    
     # Check 1: Validate 'name' exists
     if 'name' not in dataset_dict:
         raise ValueError("Dataset missing required field: 'name'")
@@ -116,7 +123,7 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
     if not isinstance(dataset_dict['name'], str) or not dataset_dict['name'].strip():
         raise ValueError("Dataset 'name' must be a non-empty string")
     
-    name = dataset_dict['name']  # Store for better error messages
+    name = dataset_dict['name']
 
     # Check 2: Either url or urls exists (not both, not neither)
     has_url = 'url' in dataset_dict
@@ -128,10 +135,7 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
     if not has_url and not has_urls:
         raise ValueError(f"Dataset '{name}' must have either 'url' or 'urls'")
 
-   # Check 3: Validate 'file_size' exists and is positive
-    # ❌ YOUR CODE: if "file_size" < 0:  # ← Can't compare string to int!
-    
-    # ✅ CORRECT:
+    # Check 3: Validate 'file_size' exists and is positive
     if has_url:  # Single file
         if 'file_size' not in dataset_dict:
             raise ValueError(f"Dataset '{name}' missing 'file_size'")
@@ -147,10 +151,6 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
             raise ValueError(f"Dataset '{name}' file_sizes must be a list")
 
     # Check 4: Validate checksum format
-    # ❌ YOUR CODE: if "checksum" != "md5" or "checksum" != "sha256"
-    #               ^ This checks the string literal, not the value!
-    
-    # ✅ CORRECT:
     if has_url:  # Single file dataset
         if 'checksum' not in dataset_dict:
             raise ValueError(f"Dataset '{name}' missing 'checksum'")
@@ -159,7 +159,6 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
         checksum_type = dataset_dict.get('checksum_type', 'md5')
         
         if checksum.lower() != 'skip':
-            import re
             if checksum_type == 'md5':
                 if not re.match(r'^[a-fA-F0-9]{32}$', checksum):
                     raise ValueError(f"Dataset '{name}' has invalid MD5 checksum format")
@@ -179,7 +178,6 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
         # Validate each checksum in the list
         for i, checksum in enumerate(checksums):
             if checksum.lower() != 'skip':
-                import re
                 if checksum_type == 'md5':
                     if not re.match(r'^[a-fA-F0-9]{32}$', checksum):
                         raise ValueError(
@@ -192,7 +190,6 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
                         )
                 else:
                     raise ValueError(f"Dataset '{name}' checksum_type must be 'md5' or 'sha256'")
-    
 
     # Check 5: Validate download_strategy
     valid_strategies = ["single_threaded", "multi_file", "chunked"]
@@ -203,7 +200,7 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
             f"Dataset '{name}' download_strategy must be one of {valid_strategies}"
         )
 
-   # Check 6: Validate destination_folder exists
+    # Check 6: Validate destination_folder exists
     if 'destination_folder' not in dataset_dict:
         raise ValueError(f"Dataset '{name}' missing 'destination_folder'")
     
@@ -228,4 +225,4 @@ def validate_dataset_config(dataset_dict: dict) -> dict:
                 "length mismatch"
             )
     
-    return dataset_dict  # Return validated dict
+    return dataset_dict

@@ -12,7 +12,7 @@ src/downloader.py
 src/extractor.py
 src/progress_tracker.py
 src/thread_manager.py
-src/vaildator.py
+src/validator.py
 tests/__init__.py
 tests/test_config_loader.py
 tests/test_downloader.py

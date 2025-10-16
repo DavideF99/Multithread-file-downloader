@@ -2,12 +2,12 @@
 import pytest
 import os
 import hashlib
-from unittest.mock import Mock, patch, mock_open
-from src.downloader import (
+from unittest.mock import Mock, patch
+from src.validator import (  # Changed from src.downloader
     calculate_checksum,
-    validate_checksum,
-    download_and_validate
+    validate_checksum
 )
+from src.downloader import download_and_validate  # Keep integration test
 
 
 # ==================== Checksum Calculation Tests ====================

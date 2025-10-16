@@ -5,9 +5,20 @@ from tqdm import tqdm
 from src.logger import get_logger
 import json
 from datetime import datetime
+from typing import Optional
 import hashlib
+from src.progress_tracker import (
+    load_progress,
+    save_progress,
+    get_progress_file_path,
+    validate_partial_file,
+    cleanup_progress_file
+)
+from src.extractor import extract_archive, check_disk_space 
+from src.validator import validate_checksum  
 
-def download_file(url, destination, expected_size=None, max_retries=3, base_delay=1, max_delay=60):
+def download_file(url: str, destination: str, expected_size: Optional[int] = None, 
+                  max_retries: int = 3, base_delay: int = 1, max_delay: int = 60) -> None:
     """Download file with retry logic and progress tracking.
     Steps:
     1. Create destination directory if needed
@@ -138,93 +149,6 @@ def download_file(url, destination, expected_size=None, max_retries=3, base_dela
     
     # Step 4: All retries exhausted
     raise Exception(f"Failed to download {url} after {max_retries} attempts")
-
-def load_progress(progress_file):
-    """
-    Load progress from JSON file.
-    
-    Returns:
-        dict or None: Progress data if file exists and valid, None otherwise
-    """
-    if not os.path.exists(progress_file):
-        return None
-    
-    try:
-        with open(progress_file, 'r') as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        get_logger().warning(f"Failed to load progress file: {e}")
-        return None
-
-
-def save_progress(progress_file, progress_data):
-    """
-    Save progress to JSON file.
-    
-    Args:
-        progress_file: Path to progress file
-        progress_data: Dict containing progress information
-    """
-    # Create directory if needed
-    progress_dir = os.path.dirname(progress_file)
-    if progress_dir:
-        os.makedirs(progress_dir, exist_ok=True)
-    
-    # Add timestamp
-    progress_data['last_updated'] = datetime.utcnow().isoformat() + 'Z'
-    
-    # Write atomically (write to temp file, then rename)
-    temp_file = progress_file + '.tmp'
-    try:
-        with open(temp_file, 'w') as f:
-            json.dump(progress_data, f, indent=2)
-        os.replace(temp_file, progress_file)  # Atomic rename
-    except IOError as e:
-        get_logger().error(f"Failed to save progress: {e}")
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
-
-
-def get_progress_file_path(destination):
-    """
-    Generate progress file path from destination path.
-    
-    Args:
-        destination: Destination file path (e.g., "downloads/cifar10/data.tar.gz")
-    
-    Returns:
-        str: Progress file path (e.g., ".progress/cifar10/data.tar.gz.progress")
-    """
-    # Get relative path components
-    dest_dir = os.path.dirname(destination)
-    dest_file = os.path.basename(destination)
-    
-    # Mirror structure in .progress/ folder
-    if dest_dir:
-        progress_dir = os.path.join('.progress', dest_dir)
-    else:
-        progress_dir = '.progress'
-    
-    return os.path.join(progress_dir, dest_file + '.progress')
-
-
-def validate_partial_file(destination, expected_bytes):
-    """
-    Validate that partial file size matches expected downloaded bytes.
-    
-    Args:
-        destination: Path to partial file
-        expected_bytes: Expected file size from progress
-    
-    Returns:
-        bool: True if valid, False otherwise
-    """
-    if not os.path.exists(destination):
-        return False
-    
-    actual_size = os.path.getsize(destination)
-    return actual_size == expected_bytes
-
 
 def download_with_resume(url, destination, expected_size=None, checksum=None, 
                          checksum_type='md5', max_retries=3, base_delay=1, max_delay=60):
@@ -455,119 +379,6 @@ def download_with_resume(url, destination, expected_size=None, checksum=None,
     # All retries exhausted
     raise Exception(f"Failed to download {url} after {max_retries} attempts")
 
-
-def cleanup_progress_file(destination):
-    """
-    Delete progress file after successful download.
-    
-    Args:
-        destination: Destination file path
-    """
-    progress_file = get_progress_file_path(destination)
-    if os.path.exists(progress_file):
-        try:
-            os.remove(progress_file)
-            get_logger().debug(f"Deleted progress file: {progress_file}")
-        except OSError as e:
-            get_logger().warning(f"Failed to delete progress file: {e}")
-
-def calculate_checksum(file_path, checksum_type='md5', chunk_size=8192):
-    """
-    Calculate checksum of a file.
-    
-    Args:
-        file_path: Path to file
-        checksum_type: 'md5' or 'sha256'
-        chunk_size: Size of chunks to read (default 8KB)
-    
-    Returns:
-        str: Hexadecimal checksum string
-    
-    Raises:
-        ValueError: If checksum_type is invalid
-        IOError: If file cannot be read
-    """
-    logger = get_logger()
-    
-    # Select hash algorithm
-    if checksum_type.lower() == 'md5':
-        hasher = hashlib.md5()
-    elif checksum_type.lower() == 'sha256':
-        hasher = hashlib.sha256()
-    else:
-        raise ValueError(f"Unsupported checksum type: {checksum_type}")
-    
-    # Read file in chunks and update hash
-    try:
-        file_size = os.path.getsize(file_path)
-        
-        # Progress bar for validation
-        progress = tqdm(
-            total=file_size,
-            unit='B',
-            unit_scale=True,
-            unit_divisor=1024,
-            desc=f'Validating {checksum_type.upper()}'
-        )
-        
-        with open(file_path, 'rb') as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                hasher.update(chunk)
-                progress.update(len(chunk))
-        
-        progress.close()
-        
-        return hasher.hexdigest()
-        
-    except IOError as e:
-        logger.error(f"Failed to read file for checksum: {e}")
-        raise
-
-
-def validate_checksum(file_path, expected_checksum, checksum_type='md5'):
-    """
-    Validate file checksum against expected value.
-    
-    Args:
-        file_path: Path to file to validate
-        expected_checksum: Expected checksum (hex string)
-        checksum_type: 'md5' or 'sha256'
-    
-    Returns:
-        bool: True if validation passes
-    
-    Raises:
-        ValueError: If checksum validation fails
-    """
-    logger = get_logger()
-    
-    # Skip validation if requested
-    if expected_checksum.lower() == 'skip':
-        logger.info("Checksum validation skipped (checksum='skip')")
-        return True
-    
-    logger.info(f"Validating {checksum_type.upper()} checksum...")
-    
-    # Calculate actual checksum
-    actual_checksum = calculate_checksum(file_path, checksum_type)
-    
-    # Compare (case-insensitive)
-    if actual_checksum.lower() == expected_checksum.lower():
-        logger.info(f"Checksum validation passed: {actual_checksum}")
-        return True
-    else:
-        logger.error(f"Checksum validation FAILED!")
-        logger.error(f"  Expected: {expected_checksum}")
-        logger.error(f"  Actual:   {actual_checksum}")
-        logger.error(f"  File may be corrupted or expected checksum is incorrect")
-        raise ValueError(
-            f"Checksum mismatch: expected {expected_checksum}, got {actual_checksum}"
-        )
-
-
 def download_and_validate(url, destination, expected_size=None, checksum=None,
                           checksum_type='md5', max_retries=3, base_delay=1, max_delay=60):
     """
@@ -606,7 +417,7 @@ def download_and_validate(url, destination, expected_size=None, checksum=None,
             max_delay=max_delay
         )
         
-        # Validate checksum if provided
+        # Validate checksum if provided (uses imported function)
         if checksum:
             try:
                 validate_checksum(destination, checksum, checksum_type)
@@ -627,4 +438,73 @@ def download_and_validate(url, destination, expected_size=None, checksum=None,
             
     except Exception as e:
         logger.error(f"Download failed: {e}")
+        raise
+
+def download_extract_validate(url, destination, expected_size=None, checksum=None,
+                               checksum_type='md5', extract_after_download=False,
+                               extract_format=None, keep_archive=False,
+                               max_retries=3, base_delay=1, max_delay=60):
+    """
+    Complete workflow: Download → Validate → Extract.
+    
+    This orchestrator function coordinates the overall download workflow.
+    
+    Args:
+        url: URL to download from
+        destination: Local file path
+        expected_size: Expected file size (optional)
+        checksum: Expected checksum (optional)
+        checksum_type: 'md5' or 'sha256'
+        extract_after_download: Extract archive after download
+        extract_format: Archive format ('tar.gz', 'zip', etc.)
+        keep_archive: Keep archive file after extraction
+        max_retries: Maximum retry attempts
+        base_delay: Base delay for exponential backoff
+        max_delay: Maximum backoff delay
+    
+    Returns:
+        str: Path to final data (extracted folder or downloaded file)
+    """
+    logger = get_logger()
+    
+    try:
+        # Step 1: Download and validate
+        download_and_validate(
+            url=url,
+            destination=destination,
+            expected_size=expected_size,
+            checksum=checksum,
+            checksum_type=checksum_type,
+            max_retries=max_retries,
+            base_delay=base_delay,
+            max_delay=max_delay
+        )
+        
+        # Step 2: Extract if requested
+        if extract_after_download:
+            if not extract_format:
+                logger.warning("extract_after_download=True but no extract_format provided")
+                return destination
+            
+            # Check disk space
+            if expected_size:
+                check_disk_space(expected_size * 3, os.path.dirname(destination))
+            
+            # Extract using extractor module
+            extract_to = os.path.dirname(destination)
+            extract_archive(
+                archive_path=destination,
+                extract_to=extract_to,
+                archive_format=extract_format,
+                remove_archive=not keep_archive
+            )
+            
+            logger.info(f"Download, validation, and extraction complete: {extract_to}")
+            return extract_to
+        else:
+            logger.info(f"Download and validation complete: {destination}")
+            return destination
+            
+    except Exception as e:
+        logger.error(f"Workflow failed: {e}")
         raise
