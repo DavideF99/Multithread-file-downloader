@@ -80,7 +80,7 @@ def extract_archive(archive_path, extract_to=None, archive_format=None, remove_a
         raise
 
 
-def extract_tar(archive_path, extract_to, archive_format):
+def extract_tar(archive_path: str, extract_to: str, archive_format: str) -> None:
     """
     Extract tar or tar.gz archive.
     
@@ -88,6 +88,9 @@ def extract_tar(archive_path, extract_to, archive_format):
         archive_path: Path to tar archive
         extract_to: Destination directory
         archive_format: 'tar' or 'tar.gz'
+    
+    Raises:
+        ValueError: If path traversal detected
     """
     logger = get_logger()
     
@@ -97,46 +100,55 @@ def extract_tar(archive_path, extract_to, archive_format):
     else:
         mode = 'r'
     
+    # Create extraction directory if it doesn't exist
+    os.makedirs(extract_to, exist_ok=True)
+    
     # Open and extract with path traversal protection
     with tarfile.open(archive_path, mode) as tar:
-        # Security: Check for path traversal attempts
-        for member in tar.getmembers():
-            member_path = os.path.join(extract_to, member.name)
-            
-            # Normalize and check path stays within extract_to
-            if not os.path.abspath(member_path).startswith(os.path.abspath(extract_to)):
-                raise ValueError(f"Path traversal attempt detected: {member.name}")
-            
-            # Security: Skip absolute paths
+        # Get all members and filter safe ones
+        members = tar.getmembers()
+        safe_members = []
+        
+        # Security: Check each member for safety
+        for member in members:
+            # Skip absolute paths
             if member.name.startswith('/'):
                 logger.warning(f"Skipping absolute path: {member.name}")
                 continue
             
-            # Security: Skip device files
+            # Skip device files
             if member.isdev():
                 logger.warning(f"Skipping device file: {member.name}")
                 continue
-        
-        # Extract with progress tracking
-        members = tar.getmembers()
-        logger.info(f"Extracting {len(members)} files...")
-        
-        # Show progress bar
-        progress = tqdm(
-            total=len(members),
-            unit='file',
-            desc='Extracting'
-        )
-        
-        for member in members:
-            # Skip dangerous members
-            if member.name.startswith('/') or member.isdev():
-                continue
             
-            tar.extract(member, path=extract_to)
-            progress.update(1)
+            # Check for path traversal
+            member_path = os.path.join(extract_to, member.name)
+            abs_extract = os.path.abspath(extract_to)
+            abs_member = os.path.abspath(member_path)
+            
+            if not abs_member.startswith(abs_extract):
+                raise ValueError(f"Path traversal attempt detected: {member.name}")
+            
+            # Member is safe
+            safe_members.append(member)
         
-        progress.close()
+        # Extract safe members with progress
+        if safe_members:
+            logger.info(f"Extracting {len(safe_members)} files...")
+            
+            progress = tqdm(
+                total=len(safe_members),
+                unit='file',
+                desc='Extracting'
+            )
+            
+            for member in safe_members:
+                tar.extract(member, path=extract_to)
+                progress.update(1)
+            
+            progress.close()
+        else:
+            logger.info("No files to extract (archive is empty or all files filtered)")
 
 
 def extract_zip(archive_path, extract_to):

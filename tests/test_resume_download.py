@@ -4,8 +4,8 @@ import os
 import json
 import requests
 from unittest.mock import Mock, patch, mock_open
-from src.downloader import (
-    download_with_resume,
+from src.downloader import download_with_resume
+from src.progress_tracker import (
     load_progress,
     save_progress,
     get_progress_file_path,
@@ -91,8 +91,8 @@ def test_cleanup_progress_file(tmp_path):
     os.makedirs(progress_file.parent, exist_ok=True)
     progress_file.write_text("{}")
     
-    # Cleanup with mocked path resolution
-    with patch('src.downloader.get_progress_file_path', return_value=str(progress_file)):
+    # Cleanup - mock at the correct import location
+    with patch('src.progress_tracker.get_progress_file_path', return_value=str(progress_file)):
         cleanup_progress_file(str(destination))
     
     # Verify deleted

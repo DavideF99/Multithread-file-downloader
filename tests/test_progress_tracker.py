@@ -231,8 +231,9 @@ def test_cleanup_progress_file(temp_dir):
     
     assert os.path.exists(progress_file)
     
-    # Cleanup
-    cleanup_progress_file(destination, base_dir=os.path.join(temp_dir, '.progress'))
+    # Cleanup - using the actual path calculation
+    # The function calculates: .progress/downloads/file.txt.progress
+    cleanup_progress_file(destination, base_dir=temp_dir + '/.progress')
     
     # Should be deleted
     assert not os.path.exists(progress_file)
