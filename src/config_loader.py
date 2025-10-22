@@ -92,6 +92,11 @@ def load_config(config_path: str) -> List[DatasetConfig]:
     
     return results
 
+def validate_url(url: str, name: str) -> None:
+    """Validate URL format."""
+    if not url.startswith(('http://', 'https://')):
+        raise ValueError(f"Dataset '{name}' has invalid URL (must start with http/https)")
+
 
 def validate_dataset_config(dataset_dict: Dict[str, Any]) -> Dict[str, Any]:
     """
