@@ -1,5 +1,3 @@
-# Multithread-file-downloader
-
 # 🚀 ML Dataset Downloader
 
 A production-ready, multi-threaded file downloader specifically designed for large machine learning datasets. Features intelligent resume capability, parallel chunked downloads, checksum validation, and automatic archive extraction.
@@ -29,15 +27,15 @@ A production-ready, multi-threaded file downloader specifically designed for lar
 
 ## 📋 Table of Contents
 
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [Configuration](#configuration)
-- [Usage Examples](#usage-examples)
-- [API Reference](#api-reference)
-- [Architecture](#architecture)
-- [Advanced Features](#advanced-features)
-- [Troubleshooting](#troubleshooting)
-- [Contributing](#contributing)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Configuration](#️-configuration)
+- [Usage Examples](#-usage-examples)
+- [Architecture](#️-architecture)
+- [Advanced Features](#-advanced-features)
+- [Troubleshooting](#-troubleshooting)
+- [Testing](#-testing)
+- [Contributing](#-contributing)
 
 ## 🔧 Installation
 
